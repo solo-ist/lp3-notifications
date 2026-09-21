@@ -6,8 +6,12 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
+import android.content.ComponentName;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -64,9 +68,20 @@ public class MainActivity extends Activity {
     private void render() {
         rows.removeAllViews();
 
+        // Two different failures that look the same if you only check for the
+        // service instance: access genuinely not granted, versus granted but
+        // not yet bound. After a process kill — force-stop, reboot, low memory
+        // — the activity can start before onListenerConnected fires, and
+        // treating that as "not granted" sends you to fix something that isn't
+        // broken.
+        if (!hasAccess()) {
+            renderNoAccess();
+            return;
+        }
+
         Listener listener = Listener.get();
         if (listener == null) {
-            renderNoAccess();
+            renderConnecting();
             return;
         }
 
@@ -117,12 +132,47 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Is our listener in the system's allow-list? Readable without any permission. */
+    private boolean hasAccess() {
+        String allowed = Settings.Secure.getString(
+                getContentResolver(), "enabled_notification_listeners");
+        if (allowed == null || allowed.isEmpty()) return false;
+        String me = new ComponentName(this, Listener.class).flattenToString();
+        String meShort = new ComponentName(this, Listener.class).flattenToShortString();
+        for (String entry : allowed.split(":")) {
+            String e = entry.trim();
+            if (e.equals(me) || e.equals(meShort)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Granted, but the system hasn't bound us yet. Ask it to, and look again
+     * shortly rather than telling the user to fix a permission they already
+     * gave.
+     */
+    private void renderConnecting() {
+        rows.addView(line("Connecting\u2026", Style.MUTED, 26f, null, null));
+        try {
+            NotificationListenerService.requestRebind(new ComponentName(this, Listener.class));
+        } catch (Exception ignored) {
+            // Best effort; the retry below covers it either way.
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (!isFinishing() && !isDestroyed()) render();
+        }, 700);
+    }
+
     private void renderNoAccess() {
         rows.addView(line("No notification access", Style.FOREGROUND, 28f, null, null));
+        // Use the real package name: debug builds carry a .debug suffix, so a
+        // hardcoded string would tell you to grant a component that isn't
+        // the one installed.
+        String component = getPackageName() + "/" + Listener.class.getName();
         rows.addView(line(
                 "Grant it once over adb:\n\n"
                         + "adb shell cmd notification allow_listener \\\n"
-                        + "  ist.solo.notifications/ist.solo.notifications.Listener\n\n"
+                        + "  " + component + "\n\n"
                         + "Use allow_listener rather than writing "
                         + "enabled_notification_listeners directly — that replaces the "
                         + "whole list and would revoke any other listener.",
@@ -154,8 +204,19 @@ public class MainActivity extends Activity {
         head.setEllipsize(TextUtils.TruncateAt.END);
         row.addView(head);
 
+        // Don't repeat yourself: some system notifications use the app name as
+        // their title, which otherwise renders as "Android System / Android
+        // System".
+        String subtitle;
+        if (body.isEmpty()) {
+            subtitle = app.equals(title) ? "" : app;
+        } else {
+            subtitle = app.equals(title) ? body : app + " · " + body;
+        }
+
         TextView sub = new TextView(this);
-        sub.setText(body.isEmpty() ? app : app + " · " + body);
+        sub.setText(subtitle);
+        sub.setVisibility(subtitle.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
         sub.setTextColor(Style.MUTED);
         sub.setTypeface(Typeface.create(Style.FONT_FAMILY, Typeface.NORMAL));
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);

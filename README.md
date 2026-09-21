@@ -98,6 +98,17 @@ backups enabled.
 
 ## Status
 
-**Built but not yet run on a device.** Written while the phone was
-disconnected, so the layout, the listener binding and the dismiss path are all
-unverified against real notifications.
+Working on a Light Phone III on LightOS `582-release-lp3`, verified against
+real notifications: the list renders, app names resolve, long-press offers the
+three actions, and Dismiss cancels the notification system-wide (confirmed gone
+from `dumpsys notification`, not merely hidden from the list).
+
+Known rough edges:
+
+- Ongoing notifications — media playback, foreground services, "Controls is
+  displaying over other apps" — cannot be dismissed, and the UI doesn't yet say
+  so. Dismiss simply appears to do nothing on them.
+- Rows are tall, so roughly three or four fit a screen. That suits the phone's
+  typography but makes a busy list long.
+- No refresh while open: the list is read on resume, so a notification arriving
+  while you're looking at the screen won't appear until you leave and return.

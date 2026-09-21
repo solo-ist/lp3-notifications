@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      A listener receives notifications from arbitrary packages, so the set of
+      apps whose names we need to resolve cannot be enumerated at build time
+      the way a <queries> allowlist requires. Without this,
+      getApplicationInfo() throws NameNotFoundException for everything except
+      always-visible system packages, and the UI falls back to printing raw
+      package IDs. Protection level is normal, granted at install.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <application
         android:label="Notifications"
         android:icon="@mipmap/ic_launcher"
