@@ -96,6 +96,21 @@ can never replace the release app while satisfying its certificate pin.
 demands exactly one signer matching it, and rejects anything debuggable or with
 backups enabled.
 
+## Ongoing notifications
+
+Some notifications can't be dismissed at all — media playback, foreground
+services, "Controls is displaying over other apps". Their app keeps them
+posted, so `cancelNotification()` is a no-op.
+
+Rather than offer a Dismiss that silently does nothing, the long-press dialog
+drops it and says why in its heading, leaving Hide and Silence. "Clear all"
+likewise only appears when at least one notification would actually clear.
+
+One Android constraint worth knowing if you touch this code: an `AlertDialog`
+shows a message **or** a list, never both — calling `setMessage()` alongside
+`setItems()` silently suppresses the items. The explanation therefore lives in
+the title.
+
 ## Status
 
 Working on a Light Phone III on LightOS `582-release-lp3`, verified against
@@ -105,9 +120,6 @@ from `dumpsys notification`, not merely hidden from the list).
 
 Known rough edges:
 
-- Ongoing notifications — media playback, foreground services, "Controls is
-  displaying over other apps" — cannot be dismissed, and the UI doesn't yet say
-  so. Dismiss simply appears to do nothing on them.
 - Rows are tall, so roughly three or four fit a screen. That suits the phone's
   typography but makes a busy list long.
 - No refresh while open: the list is read on resume, so a notification arriving

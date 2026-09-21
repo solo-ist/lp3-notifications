@@ -121,11 +121,21 @@ public class MainActivity extends Activity {
             rows.addView(notificationRow(sbn));
         }
 
-        rows.addView(line("Clear all", Style.MUTED, 24f, () -> {
-            Listener l = Listener.get();
-            if (l != null) l.cancelAllNotifications();
-            render();
-        }, null));
+        // Only offer Clear all if something would actually clear. Ongoing
+        // notifications — media playback, foreground services — are kept
+        // posted by their app, so the button would otherwise sit there doing
+        // nothing.
+        boolean anyClearable = false;
+        for (StatusBarNotification sbn : shown) {
+            if (sbn.isClearable()) { anyClearable = true; break; }
+        }
+        if (anyClearable) {
+            rows.addView(line("Clear all", Style.MUTED, 24f, () -> {
+                Listener l = Listener.get();
+                if (l != null) l.cancelAllNotifications();
+                render();
+            }, null));
+        }
 
         if (suppressed > 0) {
             rows.addView(line(suppressed + " hidden", Style.MUTED, 18f, this::hiddenDialog, null));
@@ -271,14 +281,33 @@ public class MainActivity extends Activity {
     private void actions(final StatusBarNotification sbn) {
         final String pkg = sbn.getPackageName();
         final String app = appLabel(pkg);
-        String[] items = {
-                "Dismiss",
-                "Hide " + app + " here",
-                "Silence " + app + " in Android",
-        };
+        final boolean clearable = sbn.isClearable();
+
+        // Offering Dismiss on an ongoing notification is a lie: the app keeps
+        // it posted, so cancelNotification() is a no-op and the row simply
+        // doesn't go away. Say so instead.
+        String[] items = clearable
+                ? new String[] {
+                        "Dismiss",
+                        "Hide " + app + " here",
+                        "Silence " + app + " in Android",
+                }
+                : new String[] {
+                        "Hide " + app + " here",
+                        "Silence " + app + " in Android",
+                };
+
+        // The reason goes in the title, not setMessage(): an AlertDialog shows
+        // a message OR a list, never both, and setting one silently suppresses
+        // the other — which would leave an ongoing notification with no
+        // actions at all.
+        String heading = clearable ? app : app + "\nOngoing — can't be dismissed";
+
         new AlertDialog.Builder(this)
-                .setTitle(app)
-                .setItems(items, (d, which) -> {
+                .setTitle(heading)
+                .setItems(items, (d, rawWhich) -> {
+                    // Re-index when Dismiss isn't present.
+                    int which = clearable ? rawWhich : rawWhich + 1;
                     switch (which) {
                         case 0:
                             dismiss(sbn);
