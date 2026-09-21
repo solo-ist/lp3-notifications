@@ -16,6 +16,8 @@ import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -36,9 +38,13 @@ import java.util.List;
  */
 public class MainActivity extends Activity {
 
+    /** 0 = what's waiting, 1 = the hidden panel to its right. */
+    private int panel = 0;
+
     private Hidden hidden;
     private HiddenNotifications hiddenOnes;
     private LinearLayout rows;
+    private GestureDetector gestures;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,12 +64,51 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // Swipe left to reach the hidden panel, right to come back — the same
+        // gesture either way, so it reads as one surface with two pages
+        // rather than a screen that opens a dialog.
+        gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null || e2 == null) return false;
+                float dx = e2.getX() - e1.getX();
+                float dy = e2.getY() - e1.getY();
+                // Ignore anything mostly vertical: the list scrolls that way.
+                if (Math.abs(dx) < Math.abs(dy) * 1.5f || Math.abs(dx) < dp(64)) return false;
+                int next = dx < 0 ? 1 : 0;
+                if (next != panel) {
+                    panel = next;
+                    render();
+                }
+                return true;
+            }
+        });
+
         setContentView(scroller);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (gestures != null) gestures.onTouchEvent(event);
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Back should come out of the hidden panel before it leaves the app.
+        if (panel != 0) {
+            panel = 0;
+            render();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // Opening the app should always land on what's waiting.
+        panel = 0;
         render();
     }
 
@@ -100,19 +145,25 @@ public class MainActivity extends Activity {
         // a description of right now rather than a log of what you've seen.
         hiddenOnes.prune(active);
 
+        if (panel == 1) {
+            renderHidden(active);
+        } else {
+            renderActive(active);
+        }
+    }
+
+    // ---- panel 0: what's waiting -------------------------------------------
+
+    private void renderActive(StatusBarNotification[] active) {
         List<StatusBarNotification> shown = new ArrayList<>();
-        int suppressedApps = 0;
-        int suppressedOnes = 0;
+        int hiddenCount = 0;
         for (StatusBarNotification sbn : active == null ? new StatusBarNotification[0] : active) {
-            if (hidden.contains(sbn.getPackageName())) {
-                suppressedApps++;
-            } else if (hiddenOnes.contains(sbn)) {
-                suppressedOnes++;
+            if (hidden.contains(sbn.getPackageName()) || hiddenOnes.contains(sbn)) {
+                hiddenCount++;
             } else {
                 shown.add(sbn);
             }
         }
-        final int suppressed = suppressedApps + suppressedOnes;
         Collections.sort(shown, new Comparator<StatusBarNotification>() {
             @Override public int compare(StatusBarNotification a, StatusBarNotification b) {
                 return Long.compare(b.getPostTime(), a.getPostTime()); // newest first
@@ -120,41 +171,103 @@ public class MainActivity extends Activity {
         });
 
         if (shown.isEmpty()) {
-            rows.addView(line(suppressed == 0
-                    ? "Nothing waiting"
-                    : "Nothing waiting (" + suppressed + " hidden)",
-                    Style.MUTED, 26f, null, null));
+            rows.addView(line("Nothing waiting", Style.MUTED, 26f, null, null));
+        } else {
+            for (final StatusBarNotification sbn : shown) {
+                rows.addView(notificationRow(sbn));
+            }
+
+            // Only offer Clear all if something would actually clear. Ongoing
+            // notifications are kept posted by their app, so the button would
+            // otherwise sit there doing nothing.
+            boolean anyClearable = false;
+            for (StatusBarNotification sbn : shown) {
+                if (sbn.isClearable()) { anyClearable = true; break; }
+            }
+            if (anyClearable) {
+                rows.addView(line("Clear all", Style.MUTED, 24f, () -> {
+                    Listener l = Listener.get();
+                    if (l != null) l.cancelAllNotifications();
+                    render();
+                }, null));
+            }
+        }
+
+        // The way through to the panel on the right. Shown always, so the
+        // panel is discoverable without knowing the swipe exists — and with a
+        // count when there is something over there.
+        String label = hiddenCount > 0 ? "Hidden (" + hiddenCount + ")  \u2192" : "Hidden  \u2192";
+        rows.addView(line(label, Style.MUTED, 20f, () -> {
+            panel = 1;
+            render();
+        }, null));
+    }
+
+    // ---- panel 1: what you've hidden ---------------------------------------
+
+    private void renderHidden(StatusBarNotification[] active) {
+        rows.addView(line("\u2190  Hidden", Style.MUTED, 20f, () -> {
+            panel = 0;
+            render();
+        }, null));
+
+        final List<String> hiddenApps = new ArrayList<>(hidden.all());
+        Collections.sort(hiddenApps);
+
+        final List<StatusBarNotification> hiddenNotifications = new ArrayList<>();
+        for (StatusBarNotification sbn : active == null ? new StatusBarNotification[0] : active) {
+            if (!hidden.contains(sbn.getPackageName()) && hiddenOnes.contains(sbn)) {
+                hiddenNotifications.add(sbn);
+            }
+        }
+
+        if (hiddenApps.isEmpty() && hiddenNotifications.isEmpty()) {
+            rows.addView(line("Nothing hidden", Style.MUTED, 26f, null, null));
             return;
         }
 
-        for (final StatusBarNotification sbn : shown) {
-            rows.addView(notificationRow(sbn));
+        if (!hiddenApps.isEmpty()) {
+            for (final String pkg : hiddenApps) {
+                LinearLayout row = twoLine(appLabel(pkg), "App \u00b7 tap to show again");
+                row.setOnClickListener(v -> { hidden.show(pkg); render(); });
+                rows.addView(row);
+            }
         }
 
-        // Only offer Clear all if something would actually clear. Ongoing
-        // notifications — media playback, foreground services — are kept
-        // posted by their app, so the button would otherwise sit there doing
-        // nothing.
-        boolean anyClearable = false;
-        for (StatusBarNotification sbn : shown) {
-            if (sbn.isClearable()) { anyClearable = true; break; }
+        for (final StatusBarNotification sbn : hiddenNotifications) {
+            String t = text(sbn.getNotification().extras.getCharSequence("android.title"));
+            String title = t.isEmpty() ? appLabel(sbn.getPackageName()) : t;
+            LinearLayout row = twoLine(title, appLabel(sbn.getPackageName()) + " \u00b7 tap to show again");
+            final String entry = HiddenNotifications.fingerprint(sbn);
+            row.setOnClickListener(v -> { hiddenOnes.show(entry); render(); });
+            rows.addView(row);
         }
-        if (anyClearable) {
-            rows.addView(line("Clear all", Style.MUTED, 24f, () -> {
-                Listener l = Listener.get();
-                if (l != null) l.cancelAllNotifications();
-                render();
-            }, null));
-        }
+    }
 
-        if (suppressedApps > 0) {
-            rows.addView(line(suppressedApps + (suppressedApps == 1 ? " app hidden" : " apps hidden"),
-                    Style.MUTED, 18f, this::hiddenDialog, null));
-        }
-        if (suppressedOnes > 0) {
-            rows.addView(line(suppressedOnes + (suppressedOnes == 1 ? " notification hidden" : " notifications hidden"),
-                    Style.MUTED, 18f, this::hiddenOnesDialog, null));
-        }
+    /** A row in the same shape as a notification: title over a muted line. */
+    private LinearLayout twoLine(String title, String sub) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(14), 0, dp(14));
+
+        TextView head = new TextView(this);
+        head.setText(title);
+        head.setTextColor(Style.FOREGROUND);
+        head.setTypeface(Typeface.create(Style.FONT_FAMILY, Typeface.NORMAL));
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f);
+        head.setMaxLines(2);
+        head.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(head);
+
+        TextView s2 = new TextView(this);
+        s2.setText(sub);
+        s2.setTextColor(Style.MUTED);
+        s2.setTypeface(Typeface.create(Style.FONT_FAMILY, Typeface.NORMAL));
+        s2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        s2.setMaxLines(1);
+        s2.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(s2);
+        return row;
     }
 
     /** Is our listener in the system's allow-list? Readable without any permission. */
@@ -356,51 +469,7 @@ public class MainActivity extends Activity {
         render();
     }
 
-    private void hiddenDialog() {
-        final List<String> pkgs = new ArrayList<>(hidden.all());
-        if (pkgs.isEmpty()) return;
-        Collections.sort(pkgs);
-        String[] labels = new String[pkgs.size()];
-        for (int i = 0; i < pkgs.size(); i++) labels[i] = appLabel(pkgs.get(i));
 
-        new AlertDialog.Builder(this)
-                .setTitle("Hidden here")
-                .setItems(labels, (d, which) -> {
-                    hidden.show(pkgs.get(which));
-                    render();
-                })
-                .show();
-    }
-
-    /** Unhide individual notifications. Entries are pruned to live ones, so
-     *  everything listed here is still posted and can be labelled from it. */
-    private void hiddenOnesDialog() {
-        Listener l = Listener.get();
-        if (l == null) return;
-        StatusBarNotification[] active;
-        try {
-            active = l.getActiveNotifications();
-        } catch (SecurityException e) {
-            return;
-        }
-        final List<String> entries = new ArrayList<>();
-        final List<String> labels = new ArrayList<>();
-        for (StatusBarNotification sbn : active == null ? new StatusBarNotification[0] : active) {
-            if (!hiddenOnes.contains(sbn)) continue;
-            entries.add(HiddenNotifications.fingerprint(sbn));
-            String t = text(sbn.getNotification().extras.getCharSequence("android.title"));
-            labels.add(t.isEmpty() ? appLabel(sbn.getPackageName()) : t);
-        }
-        if (entries.isEmpty()) return;
-
-        new AlertDialog.Builder(this)
-                .setTitle("Hidden notifications")
-                .setItems(labels.toArray(new String[0]), (d, which) -> {
-                    hiddenOnes.show(entries.get(which));
-                    render();
-                })
-                .show();
-    }
 
     private void openSystemNotificationSettings(String pkg) {
         Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

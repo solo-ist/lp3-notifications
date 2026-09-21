@@ -39,8 +39,20 @@ They look identical in a menu, so the UI names them apart:
 | **Hide *app* here** | this app's | Stops it appearing on this screen. It still posts, still buzzes, still sits in the real shade. |
 | **Silence *app* in Android** | Android's | Actually silences it — but no app can change another app's notification settings, so this only *opens the system screen* for it. |
 
-Hidden apps are counted at the bottom of the list, and tapping that count lets
-you unhide them.
+## The hidden panel
+
+Anything you've hidden — whole apps, or individual notifications — lives on a
+second panel to the right of the list. **Swipe left** to reach it, **swipe
+right** or press **Back** to return, or tap the `Hidden (n) →` row at the
+bottom of the list.
+
+It uses the same treatment as the notifications themselves: title over a muted
+line, no chrome. Each row says what hiding it means and tapping it undoes that.
+
+This replaced a count-plus-dialog at the foot of the list, which was a poor
+idea in practice: only about eight rows fit the screen, so with a normal
+number of notifications the control was several scrolls below the fold and
+effectively undiscoverable.
 
 ## Granting access
 
