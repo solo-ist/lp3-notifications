@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="Notifications"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Reads every notification on the device. The system binds this only
+          after notification access is granted, and it is exported because the
+          system is the one binding it. It stores nothing: see Listener.
+        -->
+        <service
+            android:name=".Listener"
+            android:exported="true"
+            android:label="Notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Marks this as a LightOS "tool" so it survives the toolbox filter when
+          external tools are off. With LIGHTOS_SHOW_EXTERNAL_TOOLS=0 an app
+          without this does not appear at all. Undocumented; may break.
+        -->
+        <receiver
+            android:name=".SdkMarkerReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.thelightphone.sdk.ACTION_SDK_MARKER" />
+            </intent-filter>
+            <meta-data
+                android:name="com.thelightphone.sdk.SDK_VERSION"
+                android:value="0.1.1" />
+        </receiver>
+    </application>
+</manifest>

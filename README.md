@@ -1,0 +1,103 @@
+# Notifications — a top-level notification screen for the Light Phone III
+
+One entry in the LightOS toolbox that shows everything currently notifying, so
+dealing with a notification doesn't mean being pulled out of the phone and into
+an app.
+
+- **Tap** a notification to go where it wanted to send you (its `contentIntent`),
+  and it dismisses itself
+- **Long-press** for Dismiss / Hide that app here / Silence that app in Android
+- **Clear all** at the end of the list
+
+## It stores nothing
+
+`NotificationListenerService.getActiveNotifications()` already *is* the live
+state of the shade, so there is no cache to keep and no history to write. The
+list is read when the screen opens and forgotten when it closes.
+
+That is a deliberate constraint rather than a shortcut. A notification listener
+sees the content of every notification on the device — including Signal message
+bodies by way of Molly, which goes to some trouble to encrypt its own storage.
+Writing that to a second app's disk would quietly undo it. So: nothing on disk,
+no scrollback, and `allowBackup="false"` with explicit data-extraction rules so
+it can't leave the device either.
+
+The only thing persisted is a list of package names you've chosen to hide.
+
+## "Mute" means two different things
+
+They look identical in a menu, so the UI names them apart:
+
+| Action | Whose setting | What it does |
+|---|---|---|
+| **Hide *app* here** | this app's | Stops it appearing on this screen. It still posts, still buzzes, still sits in the real shade. |
+| **Silence *app* in Android** | Android's | Actually silences it — but no app can change another app's notification settings, so this only *opens the system screen* for it. |
+
+Hidden apps are counted at the bottom of the list, and tapping that count lets
+you unhide them.
+
+## Granting access
+
+The system binds the listener only once notification access is granted. On
+LightOS there is no Settings screen for it, so do it over adb:
+
+```sh
+adb shell cmd notification allow_listener \
+  ist.solo.notifications/ist.solo.notifications.Listener
+```
+
+**Use `allow_listener`, not `settings put secure enabled_notification_listeners`.**
+The latter replaces the whole list and would silently revoke any other listener
+— BrightControl's lock-screen one, for instance.
+
+Verify with `adb shell cmd notification allowed_listeners` (or, on builds where
+that subcommand is missing, `adb shell settings get secure
+enabled_notification_listeners`).
+
+## What will actually show up here
+
+Less than you'd expect, and that's the point. The LP3 has no Google Play
+Services, so FCM push cannot work — Slack, Todoist, Bluesky and Claude will
+never post anything. In practice this screen shows:
+
+- **Molly** (Signal), via LightOS's UnifiedPush distributor
+- **Home Assistant**, via its own WebSocket — the minimal flavour, not the Play one
+- **LightOS system events** — missed calls, SMS, alarms, timers
+- **Locally scheduled notifications** from anything that schedules its own
+
+A single quiet place for the few things that genuinely arrive is a different
+product from an inbox for everything, and a better fit for this phone.
+
+## Toolbox visibility
+
+Like [Menu](https://github.com/solo-ist/lp3-menu), this declares an empty
+receiver for `com.thelightphone.sdk.ACTION_SDK_MARKER`, which is how LightOS
+decides what counts as a "tool". With `LIGHTOS_SHOW_EXTERNAL_TOOLS=0` an app
+without that marker doesn't appear in the toolbox at all.
+
+That mechanism is undocumented — nothing describes it as an extension point —
+so assume a LightOS update can close it.
+
+## Build
+
+No dependencies beyond the Android platform.
+
+```sh
+NOTIFICATIONS_SIGNING_PASSWORD=$(op read "op://Private/Notifications signing key/password") \
+  ./scripts/release.sh
+```
+
+Release builds sign with a private identity at
+`~/.android-keys/soloist-notifications.jks`; debug builds deliberately use a
+different key and carry `applicationIdSuffix = ".debug"`, so a debuggable build
+can never replace the release app while satisfying its certificate pin.
+
+`scripts/verify-release.sh` is the gate: it requires an already-enrolled pin,
+demands exactly one signer matching it, and rejects anything debuggable or with
+backups enabled.
+
+## Status
+
+**Built but not yet run on a device.** Written while the phone was
+disconnected, so the layout, the listener binding and the dismiss path are all
+unverified against real notifications.

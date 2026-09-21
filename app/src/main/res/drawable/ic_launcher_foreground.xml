@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A bell outline, white on black, in the same flat line style as Menu's rules. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path
+        android:pathData="M54,32 C46,32 40,38 40,46 L40,58 L35,66 L73,66 L68,58 L68,46 C68,38 62,32 54,32 Z"
+        android:strokeColor="#FFFFFF" android:strokeWidth="4" android:strokeLineJoin="round" />
+    <path
+        android:pathData="M48,72 C48,76 50.5,78 54,78 C57.5,78 60,76 60,72"
+        android:strokeColor="#FFFFFF" android:strokeWidth="4" android:strokeLineCap="round" />
+</vector>
