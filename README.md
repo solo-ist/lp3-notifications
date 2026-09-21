@@ -22,7 +22,13 @@ Writing that to a second app's disk would quietly undo it. So: nothing on disk,
 no scrollback, and `allowBackup="false"` with explicit data-extraction rules so
 it can't leave the device either.
 
-The only thing persisted is a list of package names you've chosen to hide.
+Two small things are persisted, both deliberately bounded:
+
+- the package names of apps you've hidden, which contain no notification data
+- fingerprints of individual notifications you've hidden — see below
+
+Neither is a history. There is no record of what arrived, only of what you
+asked not to see.
 
 ## "Mute" means two different things
 
@@ -103,8 +109,25 @@ services, "Controls is displaying over other apps". Their app keeps them
 posted, so `cancelNotification()` is a no-op.
 
 Rather than offer a Dismiss that silently does nothing, the long-press dialog
-drops it and says why in its heading, leaving Hide and Silence. "Clear all"
-likewise only appears when at least one notification would actually clear.
+drops it and says why in its heading, offering **Hide this one** instead.
+"Clear all" likewise only appears when at least one notification would actually
+clear.
+
+*Hide this one* is honest about being local: the notification stays posted in
+the real shade, we simply stop listing it. It comes back when its **content
+changes**, which is the distinction that makes it useful — "Controls is
+displaying over other apps" never changes so it stays gone, while Spotify
+returns on the next track and Home Assistant on the next reconnect.
+
+What's stored for this is `StatusBarNotification.getKey()` — `pkg|user|id|tag`,
+carrying no content — plus a truncated SHA-256 of the title and text. The hash
+is a one-way fingerprint, not content, and is what lets a changed notification
+reappear; a key alone is stable across updates, so hiding Spotify once would
+hide it forever.
+
+Every render prunes entries whose notification is no longer posted, so the
+store can only ever describe what is on the device right now. It cannot
+accumulate into a log of what you've seen.
 
 One Android constraint worth knowing if you touch this code: an `AlertDialog`
 shows a message **or** a list, never both — calling `setMessage()` alongside

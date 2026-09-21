@@ -37,12 +37,14 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private Hidden hidden;
+    private HiddenNotifications hiddenOnes;
     private LinearLayout rows;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         hidden = new Hidden(this);
+        hiddenOnes = new HiddenNotifications(this);
 
         ScrollView scroller = new ScrollView(this);
         scroller.setBackgroundColor(Style.BACKGROUND);
@@ -94,15 +96,23 @@ public class MainActivity extends Activity {
             return;
         }
 
+        // Forget hidden entries whose notification is gone, so the store stays
+        // a description of right now rather than a log of what you've seen.
+        hiddenOnes.prune(active);
+
         List<StatusBarNotification> shown = new ArrayList<>();
-        int suppressed = 0;
+        int suppressedApps = 0;
+        int suppressedOnes = 0;
         for (StatusBarNotification sbn : active == null ? new StatusBarNotification[0] : active) {
             if (hidden.contains(sbn.getPackageName())) {
-                suppressed++;
+                suppressedApps++;
+            } else if (hiddenOnes.contains(sbn)) {
+                suppressedOnes++;
             } else {
                 shown.add(sbn);
             }
         }
+        final int suppressed = suppressedApps + suppressedOnes;
         Collections.sort(shown, new Comparator<StatusBarNotification>() {
             @Override public int compare(StatusBarNotification a, StatusBarNotification b) {
                 return Long.compare(b.getPostTime(), a.getPostTime()); // newest first
@@ -137,8 +147,13 @@ public class MainActivity extends Activity {
             }, null));
         }
 
-        if (suppressed > 0) {
-            rows.addView(line(suppressed + " hidden", Style.MUTED, 18f, this::hiddenDialog, null));
+        if (suppressedApps > 0) {
+            rows.addView(line(suppressedApps + (suppressedApps == 1 ? " app hidden" : " apps hidden"),
+                    Style.MUTED, 18f, this::hiddenDialog, null));
+        }
+        if (suppressedOnes > 0) {
+            rows.addView(line(suppressedOnes + (suppressedOnes == 1 ? " notification hidden" : " notifications hidden"),
+                    Style.MUTED, 18f, this::hiddenOnesDialog, null));
         }
     }
 
@@ -293,6 +308,10 @@ public class MainActivity extends Activity {
                         "Silence " + app + " in Android",
                 }
                 : new String[] {
+                        // Not "Dismiss": the notification stays posted in the
+                        // real shade, we only stop listing it. It returns if
+                        // its content changes.
+                        "Hide this one",
                         "Hide " + app + " here",
                         "Silence " + app + " in Android",
                 };
@@ -305,12 +324,15 @@ public class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle(heading)
-                .setItems(items, (d, rawWhich) -> {
-                    // Re-index when Dismiss isn't present.
-                    int which = clearable ? rawWhich : rawWhich + 1;
+                .setItems(items, (d, which) -> {
                     switch (which) {
                         case 0:
-                            dismiss(sbn);
+                            if (clearable) {
+                                dismiss(sbn);
+                            } else {
+                                hiddenOnes.hide(sbn);
+                                render();
+                            }
                             break;
                         case 1:
                             // Ours: stops it appearing on this screen. It still
@@ -345,6 +367,36 @@ public class MainActivity extends Activity {
                 .setTitle("Hidden here")
                 .setItems(labels, (d, which) -> {
                     hidden.show(pkgs.get(which));
+                    render();
+                })
+                .show();
+    }
+
+    /** Unhide individual notifications. Entries are pruned to live ones, so
+     *  everything listed here is still posted and can be labelled from it. */
+    private void hiddenOnesDialog() {
+        Listener l = Listener.get();
+        if (l == null) return;
+        StatusBarNotification[] active;
+        try {
+            active = l.getActiveNotifications();
+        } catch (SecurityException e) {
+            return;
+        }
+        final List<String> entries = new ArrayList<>();
+        final List<String> labels = new ArrayList<>();
+        for (StatusBarNotification sbn : active == null ? new StatusBarNotification[0] : active) {
+            if (!hiddenOnes.contains(sbn)) continue;
+            entries.add(HiddenNotifications.fingerprint(sbn));
+            String t = text(sbn.getNotification().extras.getCharSequence("android.title"));
+            labels.add(t.isEmpty() ? appLabel(sbn.getPackageName()) : t);
+        }
+        if (entries.isEmpty()) return;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Hidden notifications")
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    hiddenOnes.show(entries.get(which));
                     render();
                 })
                 .show();
