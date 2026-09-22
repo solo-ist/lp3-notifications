@@ -4,10 +4,15 @@ One entry in the LightOS toolbox that shows everything currently notifying, so
 dealing with a notification doesn't mean being pulled out of the phone and into
 an app.
 
-- **Tap** a notification to go where it wanted to send you (its `contentIntent`),
-  and it dismisses itself
+- **Tap** a notification to go where it wanted to send you (its `contentIntent`).
+  Tapping only opens — it never dismisses
+- **Swipe a row sideways** to dismiss it, as the system shade does
 - **Long-press** for Dismiss / Hide that app here / Silence that app in Android
 - **Clear all** at the end of the list
+
+Opening and dismissing are deliberately separate gestures. An earlier version
+dismissed on tap, which meant you couldn't look at something without
+destroying it.
 
 ## It stores nothing
 

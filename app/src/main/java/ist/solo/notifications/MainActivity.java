@@ -75,12 +75,16 @@ public class MainActivity extends Activity {
                 float dy = e2.getY() - e1.getY();
                 // Ignore anything mostly vertical: the list scrolls that way.
                 if (Math.abs(dx) < Math.abs(dy) * 1.5f || Math.abs(dx) < dp(64)) return false;
-                int next = dx < 0 ? 1 : 0;
-                if (next != panel) {
-                    panel = next;
+                // Only the hidden panel uses a whole-screen fling, to get
+                // back. On the active list the horizontal axis belongs to the
+                // rows, which swipe to dismiss. Use the "Hidden →" row to go
+                // the other way.
+                if (panel == 1 && dx > 0) {
+                    panel = 0;
                     render();
+                    return true;
                 }
-                return true;
+                return false;
             }
         });
 
@@ -367,7 +371,82 @@ public class MainActivity extends Activity {
             actions(sbn);
             return true;
         });
+        if (sbn.isClearable()) attachSwipeToDismiss(row, sbn);
         return row;
+    }
+
+    /**
+     * Drag a clearable row sideways to dismiss it, as the system shade does.
+     *
+     * The row owns the whole gesture. Returning false from ACTION_DOWN to
+     * "let the click through" does not work — a view that declines the down
+     * event receives neither the moves nor the up — so tap and long-press are
+     * dispatched here instead, via a GestureDetector.
+     *
+     * Only clearable rows get this. An ongoing one would slide back and do
+     * nothing, reading as broken rather than refused; those keep "Hide this
+     * one" under long-press.
+     */
+    private void attachSwipeToDismiss(final android.view.View row, final StatusBarNotification sbn) {
+        final float slop = dp(10);
+        final float commit = dp(100);
+
+        final GestureDetector taps = new GestureDetector(this,
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override public boolean onDown(MotionEvent e) { return true; }
+                    @Override public boolean onSingleTapUp(MotionEvent e) {
+                        row.performClick();
+                        return true;
+                    }
+                    @Override public void onLongPress(MotionEvent e) {
+                        row.performLongClick();
+                    }
+                });
+
+        row.setOnTouchListener(new android.view.View.OnTouchListener() {
+            private float startX, startY;
+            private boolean horizontal;
+
+            @Override
+            public boolean onTouch(android.view.View v, MotionEvent e) {
+                taps.onTouchEvent(e);
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = e.getRawX();
+                        startY = e.getRawY();
+                        horizontal = false;
+                        return true;
+
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = e.getRawX() - startX;
+                        float dy = e.getRawY() - startY;
+                        if (!horizontal && Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy)) {
+                            horizontal = true;
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                        if (horizontal) {
+                            v.setTranslationX(dx);
+                            v.setAlpha(Math.max(0.15f, 1f - Math.abs(dx) / (commit * 1.6f)));
+                        }
+                        return true;
+                    }
+
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL: {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                        float dx = e.getRawX() - startX;
+                        if (horizontal && e.getActionMasked() == MotionEvent.ACTION_UP
+                                && Math.abs(dx) > commit) {
+                            dismiss(sbn);
+                        } else if (horizontal) {
+                            v.animate().translationX(0f).alpha(1f).setDuration(120).start();
+                        }
+                        return true;
+                    }
+                }
+                return true;
+            }
+        });
     }
 
     private TextView line(String s, int colour, float sp, final Runnable onTap, final Runnable ignored) {
@@ -398,8 +477,10 @@ public class MainActivity extends Activity {
             return;
         }
         try {
+            // Opening is not dismissing. Tapping used to clear the
+            // notification too, which meant you could not look at something
+            // without destroying it.
             intent.send();
-            if (sbn.isClearable()) dismiss(sbn);
         } catch (PendingIntent.CanceledException e) {
             Toast.makeText(this, "That notification has expired", Toast.LENGTH_SHORT).show();
             render();
@@ -416,7 +497,7 @@ public class MainActivity extends Activity {
         // doesn't go away. Say so instead.
         String[] items = clearable
                 ? new String[] {
-                        "Dismiss",
+                        "Dismiss this notification",
                         "Hide " + app + " here",
                         "Silence " + app + " in Android",
                 }
