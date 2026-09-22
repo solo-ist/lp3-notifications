@@ -1,6 +1,7 @@
 package ist.solo.notifications;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.Intent;
@@ -480,7 +481,21 @@ public class MainActivity extends Activity {
             // Opening is not dismissing. Tapping used to clear the
             // notification too, which meant you could not look at something
             // without destroying it.
-            intent.send();
+            //
+            // The options matter. Android 14 blocks the activity start
+            // otherwise: the PendingIntent's creator is usually a cached
+            // background process, and sending its intent does not by itself
+            // grant it permission to start an activity —
+            //   Background activity launch blocked [callingPackage: …;
+            //    callingUidHasAnyVisibleWindow: false; procState: CACHED]
+            // so the tap silently did nothing. Granting the privilege is what
+            // the system shade does when you tap a notification, and it is
+            // legitimate here for the same reason: a user in a foreground app
+            // asked for it.
+            ActivityOptions opts = ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(
+                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+            intent.send(this, 0, null, null, null, null, opts.toBundle());
         } catch (PendingIntent.CanceledException e) {
             Toast.makeText(this, "That notification has expired", Toast.LENGTH_SHORT).show();
             render();

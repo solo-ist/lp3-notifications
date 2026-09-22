@@ -14,6 +14,14 @@ Opening and dismissing are deliberately separate gestures. An earlier version
 dismissed on tap, which meant you couldn't look at something without
 destroying it.
 
+Tapping sends the notification's `PendingIntent` with
+`setPendingIntentBackgroundActivityStartMode(MODE_BACKGROUND_ACTIVITY_START_ALLOWED)`.
+Without it Android 14 blocks the launch — the notification's app is nearly
+always a cached background process, and sending its intent does not by itself
+grant it permission to start an activity. It fails silently: no crash, no
+toast, just a `Background activity launch blocked` line in logcat. The system
+shade grants the same privilege when you tap a notification.
+
 ## It stores nothing
 
 `NotificationListenerService.getActiveNotifications()` already *is* the live
