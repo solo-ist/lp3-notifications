@@ -99,15 +99,18 @@ never post anything. In practice this screen shows:
 A single quiet place for the few things that genuinely arrive is a different
 product from an inbox for everything, and a better fit for this phone.
 
-## Toolbox visibility
+## Opening it
 
-Like [Menu](https://github.com/solo-ist/lp3-menu), this declares an empty
-receiver for `com.thelightphone.sdk.ACTION_SDK_MARKER`, which is how LightOS
-decides what counts as a "tool". With `LIGHTOS_SHOW_EXTERNAL_TOOLS=0` an app
-without that marker doesn't appear in the toolbox at all.
+It's meant to be opened from a hardware button shortcut (Controls), not
+the toolbox. It's an ordinary launchable app, so a shortcut opens it
+directly. With `LIGHTOS_SHOW_EXTERNAL_TOOLS=0`, the toolbox leaves it out.
 
-That mechanism is undocumented — nothing describes it as an extension point —
-so assume a LightOS update can close it.
+Up to 0.4.1 it declared the empty `com.thelightphone.sdk.ACTION_SDK_MARKER`
+receiver that [Menu](https://github.com/solo-ist/lp3-menu) uses to pass as a
+"tool" and survive that filter. It no longer does, so it doesn't take up a
+toolbox slot for something a button already reaches. To put it back in the
+toolbox, restore the receiver (see Menu's `SdkMarkerReceiver`), or add it to
+Menu.
 
 ## Build
 
