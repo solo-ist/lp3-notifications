@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Release gate for Menu.
+# Release gate for Notifications.
 #
-# Menu is the only route to every app hidden from the LightOS toolbox, so an
-# APK signed by the wrong key — or a debuggable one — would quietly take the
-# whole shelf with it. Four checks, all fatal:
+# Notifications reads every notification on the phone, so an APK signed by
+# the wrong key — or a debuggable one — would inherit that access. Five
+# checks, all fatal:
 #   1. a pin already exists (enrolment is a separate, explicit act)
 #   2. the signer matches it
 #   3. the build is not debuggable
 #   4. backups are off
+#   5. device transfer excludes every data domain
 #
 # Parsing rules, learned from a security review that broke the previous
 # version of this script:
@@ -16,6 +17,8 @@
 #     failure — so `a && fail || ok` reports OK for a *failing* check.
 #   - never regex across a whole dump. Match the exact attribute, or an
 #     unrelated string elsewhere can satisfy the test.
+#   - not even line by line: a label can contain the attribute's text.
+#     Parse the tree and read the attribute itself (manifest_gate.py).
 set -euo pipefail
 
 APK="${1:-app/build/outputs/apk/release/app-release.apk}"
@@ -65,24 +68,31 @@ if grep -q '^application-debuggable' "$work/badging.txt"; then
 fi
 echo "✓ not debuggable"
 
-# --- 4. allowBackup explicitly false on <application> ---------------------
+# --- 4. backup off, and device transfer excluded --------------------------
+# Parsed structurally by manifest_gate.py: only a direct attribute of
+# <application>, by exact name and value. The awk this replaces matched any
+# line mentioning allowBackup, so a label or a child element containing the
+# text "android:allowBackup=false" passed with the real attribute missing
+# (security audit 2026-09-27, R-02). Its own regression tests run first.
+GATE="$(cd "$(dirname "$0")" && pwd)/manifest_gate.py"
+python3 "$(dirname "$GATE")/test_manifest_gate.py" >"$work/gate-tests.txt" 2>&1 \
+    || { cat "$work/gate-tests.txt" >&2; die "manifest gate's own tests failed"; }
+
 "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" > "$work/manifest.txt" \
     || die "aapt2 xmltree failed"
-
-# Take the attribute line inside the application element, not any string
-# anywhere in the dump that happens to contain "allowBackup".
-backup="$(awk '
-    /^ *E: application/ { inapp=1; next }
-    inapp && /^ *E: / && !/^ *E: (activity|receiver|service|provider|meta-data)/ { inapp=0 }
-    inapp && /android:allowBackup/ {
-        if (match($0, /=(true|false)/)) { print substr($0, RSTART+1, RLENGTH-1); exit }
-        if (match($0, /\(type 0x12\)0x0/))  { print "false"; exit }
-        if (match($0, /\(type 0x12\)0x[fF]/)) { print "true";  exit }
-    }
-' "$work/manifest.txt")"
-
-[ -n "$backup" ]      || die "could not determine allowBackup from the manifest"
-[ "$backup" = "false" ] || die "allowBackup is $backup, expected false"
+rules_id="$(python3 "$GATE" backup "$work/manifest.txt")" || die "backup check failed"
 echo "✓ allowBackup=false"
+
+# allowBackup=false doesn't cover Android 12+ device-to-device transfer; the
+# dataExtractionRules resource does. Resolve it (release builds shorten its
+# path) and require every domain excluded from both sections.
+"$AAPT2" dump resources "$APK" > "$work/resources.txt" || die "aapt2 dump resources failed"
+rules_files="$(python3 "$GATE" resource "$work/resources.txt" "$rules_id")" \
+    || die "data extraction rules resource not found"
+for f in $rules_files; do
+    "$AAPT2" dump xmltree --file "$f" "$APK" > "$work/rules.txt" || die "aapt2 xmltree $f failed"
+    python3 "$GATE" rules "$work/rules.txt" || die "data extraction rules in $f don't exclude everything"
+done
+echo "✓ cloud backup and device transfer exclude everything"
 
 echo "$APK looks releasable."
